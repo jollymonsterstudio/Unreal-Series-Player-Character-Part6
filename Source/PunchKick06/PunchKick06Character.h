@@ -66,7 +66,8 @@ enum class ELogOutput: uint8 {
 
 UENUM(BlueprintType)
 enum class EAttackType : uint8 {
-	MELEE_FIST			UMETA(DisplayName = "Melee - Fist")
+	MELEE_FIST			UMETA(DisplayName = "Melee - Fist"),
+	MELEE_KICK			UMETA(DisplayName = "Melee - Kick")
 };
 
 UCLASS(config=Game)
@@ -93,10 +94,10 @@ class APunchKick06Character : public ACharacter
 		class USoundCue* PunchThrowSoundCue;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collision, meta = (AllowPrivateAccess = "true"))
-		class UBoxComponent* LeftFistCollisionBox;
+		class UBoxComponent* LeftMeleeCollisionBox;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collision, meta = (AllowPrivateAccess = "true"))
-		class UBoxComponent* RightFistCollisionBox;
+		class UBoxComponent* RightMeleeCollisionBox;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Animation, meta = (AllowPrivateAccess = "true"))
 		float AnimationVariable;
@@ -107,10 +108,13 @@ public:
 	// Called when the game starts or when the player is spawned
 	virtual void BeginPlay() override;
 
+	void PunchAttack();
+	void KickAttack();
+
 	/**
 	* Triggers attack animations based on user input
 	*/
-	void AttackInput();
+	void AttackInput(EAttackType AttackType);
 
 	/**
 	* Initiates player attack
@@ -136,6 +140,17 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Camera)
 	float BaseLookUpRate;
 
+	/** boolean that tells us if we need to branch our animation blue print paths **/
+	UFUNCTION(BlueprintCallable, Category=Animation)
+	bool GetIsAnimationBlended();
+
+	/** controls if the keyboard responds to user input **/
+	UFUNCTION(BlueprintCallable, Category = Animation)
+	void SetIsKeyboardEnabled(bool Enabled);
+
+	/** returns the current attack the player is performing **/
+	UFUNCTION(BlueprintCallable, Category = Animation)
+	EAttackType GetCurrentAttack();
 protected:
 
 	/** Resets HMD orientation in VR. */
@@ -184,6 +199,12 @@ private:
 	FPlayerAttackMontage* AttackMontage;
 
 	FMeleeCollisionProfile MeleeCollisionProfile;
+
+	EAttackType CurrentAttack;
+
+	bool IsAnimationBlended;
+
+	bool IsKeyboardEnabled;
 
 	/**
 	* Log - prints a message to all the log outputs with a specific color

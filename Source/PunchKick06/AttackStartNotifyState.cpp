@@ -20,6 +20,21 @@ void UAttackStartNotifyState::NotifyBegin(USkeletalMeshComponent* MeshComp, UAni
 	}
 }
 
+void UAttackStartNotifyState::NotifyTick(USkeletalMeshComponent * MeshComp, UAnimSequenceBase * Animation, float FrameDeltaTime)
+{
+	if (MeshComp != NULL && MeshComp->GetOwner() != NULL)
+	{
+		APunchKick06Character* Player = Cast<APunchKick06Character>(MeshComp->GetOwner());
+		if (Player != NULL)
+		{
+			if (Player->GetCurrentAttack() == EAttackType::MELEE_KICK)
+			{
+				Player->SetIsKeyboardEnabled(false);
+			}
+		}
+	}
+}
+
 void UAttackStartNotifyState::NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation)
 {
 	GEngine->AddOnScreenDebugMessage(-1, 4.5f, FColor::Magenta, __FUNCTION__);
@@ -30,6 +45,7 @@ void UAttackStartNotifyState::NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimS
 		if (Player != NULL)
 		{
 			Player->AttackEnd();
+			Player->SetIsKeyboardEnabled(true);
 		}
 	}
 }

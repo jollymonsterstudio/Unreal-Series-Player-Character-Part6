@@ -75,33 +75,30 @@ APunchKick06Character::APunchKick06Character()
 		PunchThrowAudioComponent->SetupAttachment(RootComponent);
 	}
 	
-	LeftFistCollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("LeftFistCollisionBox"));
-	LeftFistCollisionBox->SetupAttachment(RootComponent);
-	LeftFistCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Disabled);
-	LeftFistCollisionBox->SetNotifyRigidBodyCollision(false);
+	LeftMeleeCollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("LeftMeleeCollisionBox"));
+	LeftMeleeCollisionBox->SetupAttachment(RootComponent);
+	LeftMeleeCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Disabled);
+	LeftMeleeCollisionBox->SetNotifyRigidBodyCollision(false);
 
-	LeftFistCollisionBox->SetHiddenInGame(false);
+	LeftMeleeCollisionBox->SetHiddenInGame(false);
 
-	RightFistCollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("RightFistCollisionBox"));
-	RightFistCollisionBox->SetupAttachment(RootComponent);
-	RightFistCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Disabled);
-	RightFistCollisionBox->SetNotifyRigidBodyCollision(false);
+	RightMeleeCollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("RightMeleeCollisionBox"));
+	RightMeleeCollisionBox->SetupAttachment(RootComponent);
+	RightMeleeCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Disabled);
+	RightMeleeCollisionBox->SetNotifyRigidBodyCollision(false);
 
-	RightFistCollisionBox->SetHiddenInGame(false);
+	RightMeleeCollisionBox->SetHiddenInGame(false);
+
+	// set animation blending on by default
+	IsAnimationBlended = true;
 }
 
 void APunchKick06Character::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// attach collision components to sockets based on transformations definitions
-	const FAttachmentTransformRules AttachmentRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, false);
-
-	LeftFistCollisionBox->AttachToComponent(GetMesh(), AttachmentRules, "fist_l_collision");
-	RightFistCollisionBox->AttachToComponent(GetMesh(), AttachmentRules, "fist_r_collision");
-
-	LeftFistCollisionBox->OnComponentHit.AddDynamic(this, &APunchKick06Character::OnAttackHit);
-	RightFistCollisionBox->OnComponentHit.AddDynamic(this, &APunchKick06Character::OnAttackHit);
+	LeftMeleeCollisionBox->OnComponentHit.AddDynamic(this, &APunchKick06Character::OnAttackHit);
+	RightMeleeCollisionBox->OnComponentHit.AddDynamic(this, &APunchKick06Character::OnAttackHit);
 
 	// make sure our audio variables are initialized
 	if (PunchSoundCue && PunchAudioComponent) {
@@ -133,7 +130,7 @@ void APunchKick06Character::SetupPlayerInputComponent(class UInputComponent* Pla
 
 	// We have 2 versions of the rotation bindings to handle different kinds of devices differently
 	// "turn" handles devices that provide an absolute delta, such as a mouse.
-	// "turnrate" is for devices that we choose to treat as a rate of change, such as an analog joystick
+	// "turn rate" is for devices that we choose to treat as a rate of change, such as an analog joystick
 	PlayerInputComponent->BindAxis("Turn", this, &APawn::AddControllerYawInput);
 	PlayerInputComponent->BindAxis("TurnRate", this, &APunchKick06Character::TurnAtRate);
 	PlayerInputComponent->BindAxis("LookUp", this, &APawn::AddControllerPitchInput);
@@ -147,8 +144,9 @@ void APunchKick06Character::SetupPlayerInputComponent(class UInputComponent* Pla
 	PlayerInputComponent->BindAction("ResetVR", IE_Pressed, this, &APunchKick06Character::OnResetVR);
 
 	// attack functionality
-	PlayerInputComponent->BindAction("Attack", IE_Pressed, this, &APunchKick06Character::AttackInput);
-	PlayerInputComponent->BindAction("Attack", IE_Released, this, &APunchKick06Character::AttackEnd);
+	PlayerInputComponent->BindAction("Punch", IE_Pressed, this, &APunchKick06Character::PunchAttack);
+	PlayerInputComponent->BindAction("Kick", IE_Pressed, this, &APunchKick06Character::KickAttack);
+	
 }
 
 void APunchKick06Character::OnResetVR()
@@ -180,7 +178,7 @@ void APunchKick06Character::LookUpAtRate(float Rate)
 
 void APunchKick06Character::MoveForward(float Value)
 {
-	if ((Controller != NULL) && (Value != 0.0f))
+	if ((Controller != NULL) && (Value != 0.0f) && IsKeyboardEnabled)
 	{
 		// find out which way is forward
 		const FRotator Rotation = Controller->GetControlRotation();
@@ -194,7 +192,7 @@ void APunchKick06Character::MoveForward(float Value)
 
 void APunchKick06Character::MoveRight(float Value)
 {
-	if ( (Controller != NULL) && (Value != 0.0f) )
+	if ( (Controller != NULL) && (Value != 0.0f) && IsKeyboardEnabled )
 	{
 		// find out which way is right
 		const FRotator Rotation = Controller->GetControlRotation();
@@ -207,14 +205,75 @@ void APunchKick06Character::MoveRight(float Value)
 	}
 }
 
-void APunchKick06Character::AttackInput()
+bool APunchKick06Character::GetIsAnimationBlended()
+{
+	return IsAnimationBlended;
+}
+
+void APunchKick06Character::SetIsKeyboardEnabled(bool Enabled)
+{
+	IsKeyboardEnabled = Enabled;
+}
+
+EAttackType APunchKick06Character::GetCurrentAttack()
+{
+	return CurrentAttack;
+}
+
+void APunchKick06Character::PunchAttack()
+{
+	AttackInput(EAttackType::MELEE_FIST);
+}
+
+void APunchKick06Character::KickAttack()
+{
+	AttackInput(EAttackType::MELEE_KICK);
+}
+
+void APunchKick06Character::AttackInput(EAttackType AttackType)
 {
 	Log(ELogLevel::INFO, __FUNCTION__);
 
 	if (PlayerAttackDataTable)
 	{
 		static const FString ContextString(TEXT("Player Attack Montage Context"));
-		AttackMontage = PlayerAttackDataTable->FindRow<FPlayerAttackMontage>(FName(TEXT("Punch1")), ContextString, true);
+
+		FName RowKey;
+
+		// attach collision components to sockets based on transformations definitions
+		const FAttachmentTransformRules AttachmentRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, false);
+
+		CurrentAttack = AttackType;
+
+		switch (AttackType)
+		{
+		case EAttackType::MELEE_FIST:
+			RowKey = FName(TEXT("Punch"));
+
+			LeftMeleeCollisionBox->AttachToComponent(GetMesh(), AttachmentRules, "fist_l_collision");
+			RightMeleeCollisionBox->AttachToComponent(GetMesh(), AttachmentRules, "fist_r_collision");
+
+			IsKeyboardEnabled = true;
+
+			IsAnimationBlended = true;
+			break;
+		case EAttackType::MELEE_KICK:
+			RowKey = FName(TEXT("Kick"));
+
+			LeftMeleeCollisionBox->AttachToComponent(GetMesh(), AttachmentRules, "foot_l_collision");
+			RightMeleeCollisionBox->AttachToComponent(GetMesh(), AttachmentRules, "foot_r_collision");
+
+			IsKeyboardEnabled = false;
+
+			IsAnimationBlended = false;
+			break;
+		default:
+
+			IsAnimationBlended = true;
+			break;
+		}
+
+		AttackMontage = PlayerAttackDataTable->FindRow<FPlayerAttackMontage>(RowKey, ContextString, true);
 		if (AttackMontage)
 		{
 			// generate  number between 1 and whatever is defined in the data table for this montage :
@@ -232,22 +291,22 @@ void APunchKick06Character::AttackStart()
 {
 	Log(ELogLevel::INFO, __FUNCTION__);
 
-	LeftFistCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Enabled);
-	LeftFistCollisionBox->SetNotifyRigidBodyCollision(true);
+	LeftMeleeCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Enabled);
+	LeftMeleeCollisionBox->SetNotifyRigidBodyCollision(true);
 
-	RightFistCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Enabled);
-	RightFistCollisionBox->SetNotifyRigidBodyCollision(true);
+	RightMeleeCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Enabled);
+	RightMeleeCollisionBox->SetNotifyRigidBodyCollision(true);
 }
 
 void APunchKick06Character::AttackEnd()
 {
 	Log(ELogLevel::INFO, __FUNCTION__);
 
-	LeftFistCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Disabled);
-	LeftFistCollisionBox->SetNotifyRigidBodyCollision(false);
+	LeftMeleeCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Disabled);
+	LeftMeleeCollisionBox->SetNotifyRigidBodyCollision(false);
 
-	RightFistCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Disabled);
-	RightFistCollisionBox->SetNotifyRigidBodyCollision(false);
+	RightMeleeCollisionBox->SetCollisionProfileName(MeleeCollisionProfile.Disabled);
+	RightMeleeCollisionBox->SetNotifyRigidBodyCollision(false);
 }
 
 void APunchKick06Character::OnAttackHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
